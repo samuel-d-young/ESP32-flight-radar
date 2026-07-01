@@ -1,34 +1,29 @@
 /*
-  Flight Radar — round display (GC9A01, 240x240)
-  ESP8266 NodeMCU V3 or generic ESP32 dev board
-  -----------------------------------------------
-  v1.3.0 — adds a settings web server at the device IP on port 80.
-  Visit http://<device-ip>/ in a browser on the same network to change
-  lat/lon and radar range without reflashing.
-  Hold BOOT/FLASH button for 5s to re-open the WiFiManager portal
-  (for changing WiFi network).
+  Flight Radar — round display (GC9A01 240x240)
+  ESP8266 / ESP32 / ESP32-S3 auto-detected by web installer
+  v1.4.0 — Improv WiFi: enter credentials in the browser during/after flash
 */
-
 #include <Arduino.h>
 
 #if defined(ESP32)
   #include <WiFi.h>
-  #include <HTTPClient.h>
   #include <WebServer.h>
-  #define BOOT_BTN 0
   WebServer settingsServer(80);
 #else
   #include <ESP8266WiFi.h>
-  #include <ESP8266HTTPClient.h>
   #include <ESP8266WebServer.h>
-  #define BOOT_BTN 0
   ESP8266WebServer settingsServer(80);
 #endif
 
 #include <WiFiClientSecure.h>
-#include <WiFiManager.h>
+#if defined(ESP32)
+  #include <HTTPClient.h>
+#else
+  #include <ESP8266HTTPClient.h>
+#endif
 #include <LittleFS.h>
 #include <ArduinoJson.h>
+#include <ImprovWiFiLibrary.h>
 
 #define USER_SETUP_LOADED 1
 #define GC9A01_DRIVER
@@ -55,246 +50,250 @@
 #include <TFT_eSPI.h>
 #include <SPI.h>
 
+TFT_eSPI tft = TFT_eSPI();
+ImprovWiFi improvSerial(&Serial);
+
+const int CX = 120, CY = 120, MAXR = 112;
 #define MAX_AC 24
 #define CONFIG_FILE "/config.json"
+#define BOOT_BTN 0
 
-struct Aircraft { char flight[10]; float distNm, bearingDeg; int altFt, gsKt; };
-Aircraft fleet[MAX_AC];
-int fleetCount = 0;
-
-TFT_eSPI tft = TFT_eSPI();
-const int CX = 120, CY = 120, MAXR = 112;
-float sweepAngle = 0;
-unsigned long lastFetch = 0, lastDraw = 0, lastBtnCheck = 0;
-unsigned long btnHoldStart = 0;
-bool btnWasHeld = false;
-const unsigned long FETCH_INTERVAL_MS = 20000;
-const unsigned long DRAW_INTERVAL_MS  = 1000;
-
+// --- common config/improv code ---
 float homeLat = -37.8136, homeLon = 144.9631, radarRangeNm = 25.0;
-bool shouldSaveConfig = false;
-void saveConfigCallback() { shouldSaveConfig = true; }
+char savedSSID[64] = "", savedPass[64] = "";
+unsigned long btnHoldStart = 0; bool btnWasHeld = false;
 
-// ---------- config ----------
+void showMessage(const char* l1, const char* l2 = "", const char* l3 = "") {
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextDatum(MC_DATUM); tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  if (strlen(l1)) tft.drawString(l1, CX, CY - 14);
+  tft.setTextColor(TFT_GREEN, TFT_BLACK);
+  if (strlen(l2)) tft.drawString(l2, CX, CY + 2);
+  tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+  if (strlen(l3)) tft.drawString(l3, CX, CY + 18);
+}
+
 void loadConfig() {
   if (!LittleFS.begin()) return;
   if (!LittleFS.exists(CONFIG_FILE)) return;
-  File f = LittleFS.open(CONFIG_FILE, "r");
-  if (!f) return;
-  StaticJsonDocument<256> doc;
+  File f = LittleFS.open(CONFIG_FILE, "r"); if (!f) return;
+  StaticJsonDocument<384> doc;
   if (!deserializeJson(doc, f)) {
-    homeLat      = doc["lat"]   | homeLat;
-    homeLon      = doc["lon"]   | homeLon;
-    radarRangeNm = doc["range"] | radarRangeNm;
+    homeLat = doc["lat"]|homeLat; homeLon = doc["lon"]|homeLon;
+    radarRangeNm = doc["range"]|radarRangeNm;
+    strlcpy(savedSSID, doc["ssid"]|"", sizeof(savedSSID));
+    strlcpy(savedPass, doc["pass"]|"", sizeof(savedPass));
   }
   f.close();
 }
-
 void saveConfig() {
-  StaticJsonDocument<256> doc;
-  doc["lat"] = homeLat; doc["lon"] = homeLon; doc["range"] = radarRangeNm;
-  File f = LittleFS.open(CONFIG_FILE, "w");
-  if (f) { serializeJson(doc, f); f.close(); }
+  LittleFS.begin();
+  StaticJsonDocument<384> doc;
+  doc["lat"]=homeLat; doc["lon"]=homeLon; doc["range"]=radarRangeNm;
+  doc["ssid"]=savedSSID; doc["pass"]=savedPass;
+  File f = LittleFS.open(CONFIG_FILE,"w"); if(f){serializeJson(doc,f);f.close();}
 }
 
-// ---------- settings web server ----------
+bool improvConnectCallback(const char* ssid, const char* pass) {
+  showMessage("Connecting...", ssid);
+  WiFi.begin(ssid, pass);
+  unsigned long t = millis();
+  while (WiFi.status() != WL_CONNECTED && millis()-t < 15000) delay(200);
+  if (WiFi.status() != WL_CONNECTED) { showMessage("Failed", ssid); return false; }
+  strlcpy(savedSSID, ssid, sizeof(savedSSID));
+  strlcpy(savedPass, pass, sizeof(savedPass));
+  saveConfig();
+  return true;
+}
+
+void runImprovMode() {
+  Serial.begin(115200);
+  #if defined(ESP32)
+    #if CONFIG_IDF_TARGET_ESP32S3
+      auto chip = ImprovTypes::ChipFamily::CF_ESP32_S3;
+    #elif CONFIG_IDF_TARGET_ESP32C3
+      auto chip = ImprovTypes::ChipFamily::CF_ESP32_C3;
+    #else
+      auto chip = ImprovTypes::ChipFamily::CF_ESP32;
+    #endif
+  #else
+    auto chip = ImprovTypes::ChipFamily::CF_ESP8266;
+  #endif
+  improvSerial.setDeviceInfo(chip, "FlightRadar", "1.4", "Flight Radar");
+  improvSerial.setCustomConnectWiFi(improvConnectCallback);
+  showMessage("Connect WiFi via", "installer or", "visit device page");
+  unsigned long start = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+    improvSerial.handleSerial();
+    if (millis()-start > 300000) ESP.restart();
+    delay(10);
+  }
+}
+
 void handleRoot() {
   char ip[20]; WiFi.localIP().toString().toCharArray(ip, sizeof(ip));
-  char html[2048];
-  snprintf(html, sizeof(html), R"(<!doctype html>
-<html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Flight Radar Settings</title>
-<style>
-  body{font-family:sans-serif;background:#06090a;color:#e9f3ee;max-width:420px;margin:40px auto;padding:0 20px}
-  h2{color:#39ff8a;margin-bottom:4px}
-  p.sub{color:#74867e;font-size:13px;margin-top:0}
-  label{display:block;margin-top:16px;color:#74867e;font-size:13px}
-  input{width:100%%;box-sizing:border-box;background:#0d1412;border:1px solid #1c2622;color:#e9f3ee;
-        padding:10px;border-radius:6px;font-size:15px;margin-top:4px}
-  button{margin-top:24px;width:100%%;background:#39ff8a;color:#04130a;border:none;
-         padding:12px;border-radius:8px;font-size:16px;font-weight:700;cursor:pointer}
-  .ip{font-family:monospace;color:#39ff8a}
-</style></head>
-<body>
-<h2>Flight Radar</h2>
-<p class="sub">Device IP: <span class="ip">%s</span></p>
+  char html[2600]; snprintf(html, sizeof(html), R"(<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flight Radar</title>
+<style>body{font-family:sans-serif;background:#06090a;color:#e9f3ee;max-width:440px;margin:40px auto;padding:0 20px}
+h2{color:#39ff8a;margin-bottom:4px}.sub{color:#74867e;font-size:13px;margin-top:0}
+label{display:block;margin-top:16px;color:#74867e;font-size:13px}
+input{width:100%%;box-sizing:border-box;background:#0d1412;border:1px solid #1c2622;color:#e9f3ee;padding:10px;border-radius:6px;font-size:15px;margin-top:4px}
+button{margin-top:20px;width:100%%;background:#39ff8a;color:#04130a;border:none;padding:12px;border-radius:8px;font-size:16px;font-weight:700;cursor:pointer}
+.alt{background:#1c2622;color:#e9f3ee}.section{margin-top:28px;padding-top:20px;border-top:1px solid #1c2622}
+.ip{font-family:monospace;color:#39ff8a}.hint{color:#74867e;font-size:12px;margin-top:14px;line-height:1.6}
+</style></head><body>
+<h2>Flight Radar</h2><p class="sub">Device: <span class="ip">%s</span></p>
 <form method="POST" action="/save">
-  <label>Home latitude</label>
-  <input name="lat" value="%.4f">
-  <label>Home longitude</label>
-  <input name="lon" value="%.4f">
-  <label>Radar range (nautical miles)</label>
-  <input name="range" value="%.1f">
-  <button>Save &amp; apply</button>
-</form>
-<p style="margin-top:24px;color:#74867e;font-size:12px">
-  To change WiFi: hold the BOOT button on the board for 5 seconds.
-</p>
-</body></html>)", ip, homeLat, homeLon, radarRangeNm);
+<label>Home latitude</label><input name="lat" value="%.4f">
+<label>Home longitude</label><input name="lon" value="%.4f">
+<label>Radar range (nm)</label><input name="range" value="%.1f">
+<button>Save &amp; apply</button></form>
+<div class="section">
+<form method="POST" action="/changewifi">
+<label>WiFi SSID</label><input name="ssid" value="%s" autocomplete="username">
+<label>WiFi password</label><input name="pass" type="password" autocomplete="current-password">
+<button class="alt">Update WiFi &amp; reboot</button></form></div>
+<p class="hint">Hold BOOT button 5 s to re-enter the browser WiFi setup flow.</p>
+</body></html>)", ip, homeLat, homeLon, radarRangeNm, savedSSID);
   settingsServer.send(200, "text/html", html);
 }
-
 void handleSave() {
   if (settingsServer.hasArg("lat"))   homeLat      = settingsServer.arg("lat").toFloat();
   if (settingsServer.hasArg("lon"))   homeLon      = settingsServer.arg("lon").toFloat();
   if (settingsServer.hasArg("range")) radarRangeNm = settingsServer.arg("range").toFloat();
-  if (radarRangeNm < 5) radarRangeNm = 25;
+  if (radarRangeNm<5) radarRangeNm=25;
   saveConfig();
-  settingsServer.sendHeader("Location", "/");
-  settingsServer.send(303);
-  // show notification on display
-  tft.fillRect(0, 100, 240, 40, TFT_BLACK);
-  tft.setTextColor(TFT_GREEN, TFT_BLACK);
-  tft.setTextDatum(MC_DATUM);
-  tft.drawString("Settings saved!", 120, 120);
-  lastFetch = 0; // trigger immediate data refresh
+  settingsServer.sendHeader("Location","/"); settingsServer.send(303);
 }
-
-// ---------- math ----------
-float toRad(float d) { return d * PI / 180.0; }
-float toDeg(float r) { return r * 180.0 / PI; }
-
-float haversineNm(float lat1, float lon1, float lat2, float lon2) {
-  const float R = 3440.065;
-  float dLat = toRad(lat2-lat1), dLon = toRad(lon2-lon1);
-  float a = sin(dLat/2)*sin(dLat/2)+cos(toRad(lat1))*cos(toRad(lat2))*sin(dLon/2)*sin(dLon/2);
-  return R * 2 * atan2(sqrt(a), sqrt(1-a));
-}
-float bearingDegFrom(float lat1, float lon1, float lat2, float lon2) {
-  float dLon = toRad(lon2-lon1);
-  float y = sin(dLon)*cos(toRad(lat2));
-  float x = cos(toRad(lat1))*sin(toRad(lat2))-sin(toRad(lat1))*cos(toRad(lat2))*cos(dLon);
-  return fmod(toDeg(atan2(y,x))+360.0, 360.0);
-}
-
-// ---------- WiFi ----------
-void setupWiFi() {
-  loadConfig();
-  char latBuf[16], lonBuf[16], rangeBuf[8];
-  dtostrf(homeLat,1,4,latBuf); dtostrf(homeLon,1,4,lonBuf); dtostrf(radarRangeNm,1,1,rangeBuf);
-  WiFiManagerParameter p_lat("lat","Home latitude",latBuf,16);
-  WiFiManagerParameter p_lon("lon","Home longitude",lonBuf,16);
-  WiFiManagerParameter p_range("range","Radar range (nm)",rangeBuf,8);
-  WiFiManager wm;
-  wm.setSaveConfigCallback(saveConfigCallback);
-  wm.addParameter(&p_lat); wm.addParameter(&p_lon); wm.addParameter(&p_range);
-  wm.setConfigPortalTimeout(180);
-  tft.fillScreen(TFT_BLACK);
-  tft.setTextColor(TFT_WHITE,TFT_BLACK); tft.setTextDatum(MC_DATUM);
-  tft.drawString("Connect WiFi to:", 120, 100);
-  tft.drawString("FlightRadar-Setup", 120, 120);
-  tft.drawString("to configure", 120, 140);
-  bool ok = wm.autoConnect("FlightRadar-Setup");
-  homeLat = atof(p_lat.getValue()); homeLon = atof(p_lon.getValue());
-  radarRangeNm = atof(p_range.getValue()); if (radarRangeNm<5) radarRangeNm=25;
-  if (shouldSaveConfig) saveConfig();
-  tft.fillScreen(TFT_BLACK);
-  if (!ok) {
-    tft.drawString("WiFi failed, restarting", 120, 120);
-    delay(3000); ESP.restart();
+void handleChangeWifi() {
+  if (settingsServer.hasArg("ssid") && settingsServer.arg("ssid").length()>0) {
+    settingsServer.arg("ssid").toCharArray(savedSSID,sizeof(savedSSID));
+    settingsServer.arg("pass").toCharArray(savedPass,sizeof(savedPass));
+    saveConfig();
   }
-  // show IP on screen for 4 seconds
-  tft.setTextColor(TFT_GREEN,TFT_BLACK);
-  tft.drawString("Connected!", 120, 106);
-  tft.setTextColor(TFT_WHITE,TFT_BLACK);
-  tft.drawString(WiFi.localIP().toString(), 120, 126);
-  tft.setTextColor(TFT_DARKGREY,TFT_BLACK);
-  tft.drawString("visit in browser", 120, 146);
-  delay(4000);
+  settingsServer.send(200,"text/html",
+    "<html><body style='font-family:sans-serif;background:#06090a;color:#39ff8a;text-align:center;padding-top:80px'>"
+    "<p>WiFi updated. Rebooting...</p></body></html>");
+  delay(500); ESP.restart();
 }
 
-// ---------- ADS-B fetch ----------
+// --- ADS-B ---
+struct Aircraft { char flight[10]; float distNm, bearingDeg; int altFt, gsKt; };
+Aircraft fleet[MAX_AC]; int fleetCount = 0;
+float sweepAngle = 0;
+unsigned long lastFetch = 0, lastDraw = 0;
+const unsigned long FETCH_INTERVAL_MS = 20000, DRAW_INTERVAL_MS = 1000;
+
+float toRad(float d){return d*PI/180.0;} float toDeg(float r){return r*180.0/PI;}
+float haversineNm(float la1,float lo1,float la2,float lo2){
+  const float R=3440.065; float dLa=toRad(la2-la1),dLo=toRad(lo2-lo1);
+  float a=sin(dLa/2)*sin(dLa/2)+cos(toRad(la1))*cos(toRad(la2))*sin(dLo/2)*sin(dLo/2);
+  return R*2*atan2(sqrt(a),sqrt(1-a));
+}
+float bearingDeg(float la1,float lo1,float la2,float lo2){
+  float dLo=toRad(lo2-lo1),y=sin(dLo)*cos(toRad(la2));
+  float x=cos(toRad(la1))*sin(toRad(la2))-sin(toRad(la1))*cos(toRad(la2))*cos(dLo);
+  return fmod(toDeg(atan2(y,x))+360.0,360.0);
+}
+
 void fetchAircraft() {
   if (WiFi.status()!=WL_CONNECTED) return;
   WiFiClientSecure client; client.setInsecure();
-  HTTPClient http;
-  char url[160];
+  HTTPClient http; char url[160];
   snprintf(url,sizeof(url),"https://api.adsb.lol/v2/point/%.4f/%.4f/%d",homeLat,homeLon,(int)radarRangeNm);
   if (!http.begin(client,url)) return;
-  if (http.GET()!=200) { http.end(); return; }
+  if (http.GET()!=200){http.end();return;}
   StaticJsonDocument<256> filter;
-  filter["ac"][0]["flight"]=true; filter["ac"][0]["lat"]=true; filter["ac"][0]["lon"]=true;
-  filter["ac"][0]["alt_baro"]=true; filter["ac"][0]["gs"]=true;
+  filter["ac"][0]["flight"]=true;filter["ac"][0]["lat"]=true;filter["ac"][0]["lon"]=true;
+  filter["ac"][0]["alt_baro"]=true;filter["ac"][0]["gs"]=true;
   DynamicJsonDocument doc(10240);
-  if (deserializeJson(doc,http.getStream(),DeserializationOption::Filter(filter))) { http.end(); return; }
+  if (deserializeJson(doc,http.getStream(),DeserializationOption::Filter(filter))){http.end();return;}
   http.end();
-  JsonArray ac = doc["ac"].as<JsonArray>();
-  fleetCount = 0;
-  for (JsonObject a : ac) {
-    if (fleetCount>=MAX_AC || !a.containsKey("lat") || !a.containsKey("lon")) continue;
-    Aircraft &cur = fleet[fleetCount];
-    const char* fl = a["flight"]|""; strncpy(cur.flight,fl,9); cur.flight[9]=0;
+  JsonArray ac=doc["ac"].as<JsonArray>(); fleetCount=0;
+  for (JsonObject a:ac){
+    if(fleetCount>=MAX_AC||!a.containsKey("lat")||!a.containsKey("lon")) continue;
+    Aircraft &cur=fleet[fleetCount];
+    const char* fl=a["flight"]|""; strncpy(cur.flight,fl,9); cur.flight[9]=0;
     for(int i=strlen(cur.flight)-1;i>=0&&cur.flight[i]==' ';i--) cur.flight[i]=0;
-    cur.distNm     = haversineNm(homeLat,homeLon,a["lat"].as<float>(),a["lon"].as<float>());
-    cur.bearingDeg = bearingDegFrom(homeLat,homeLon,a["lat"].as<float>(),a["lon"].as<float>());
-    cur.altFt = a["alt_baro"].is<int>() ? a["alt_baro"].as<int>() : 0;
-    cur.gsKt  = (int)(a["gs"].as<float>()+0.5);
-    fleetCount++;
+    cur.distNm=haversineNm(homeLat,homeLon,a["lat"],a["lon"]);
+    cur.bearingDeg=bearingDeg(homeLat,homeLon,a["lat"],a["lon"]);
+    cur.altFt=a["alt_baro"].is<int>()?a["alt_baro"].as<int>():0;
+    cur.gsKt=(int)(a["gs"].as<float>()+0.5); fleetCount++;
   }
   for(int i=1;i<fleetCount;i++){Aircraft key=fleet[i];int j=i-1;
-    while(j>=0&&fleet[j].distNm>key.distNm){fleet[j+1]=fleet[j];j--;} fleet[j+1]=key;}
+    while(j>=0&&fleet[j].distNm>key.distNm){fleet[j+1]=fleet[j];j--;}fleet[j+1]=key;}
 }
 
-// ---------- draw ----------
-uint16_t altColor(int alt) {
-  if(alt<=0) return TFT_DARKGREY; if(alt<5000) return TFT_RED;
-  if(alt<15000) return TFT_ORANGE; if(alt<30000) return TFT_YELLOW; return TFT_CYAN;
+uint16_t altColor(int alt){
+  if(alt<=0)return TFT_DARKGREY;if(alt<5000)return TFT_RED;
+  if(alt<15000)return TFT_ORANGE;if(alt<30000)return TFT_YELLOW;return TFT_CYAN;
 }
-
-void drawRadar() {
+void drawRadar(){
   tft.fillScreen(TFT_BLACK);
   tft.drawCircle(CX,CY,MAXR,TFT_DARKGREY);
   tft.drawCircle(CX,CY,MAXR*2/3,TFT_DARKGREY);
   tft.drawCircle(CX,CY,MAXR/3,TFT_DARKGREY);
-  tft.setTextColor(TFT_DARKGREY,TFT_BLACK); tft.setTextDatum(MC_DATUM);
-  tft.drawString("N",CX,CY-MAXR+8); tft.drawString("S",CX,CY+MAXR-8);
-  tft.drawString("E",CX+MAXR-8,CY); tft.drawString("W",CX-MAXR+8,CY);
+  tft.setTextColor(TFT_DARKGREY,TFT_BLACK);tft.setTextDatum(MC_DATUM);
+  tft.drawString("N",CX,CY-MAXR+8);tft.drawString("S",CX,CY+MAXR-8);
+  tft.drawString("E",CX+MAXR-8,CY);tft.drawString("W",CX-MAXR+8,CY);
   float rad=toRad(sweepAngle);
   tft.drawLine(CX,CY,CX+MAXR*sin(rad),CY-MAXR*cos(rad),TFT_DARKGREEN);
   for(int i=0;i<fleetCount;i++){
-    Aircraft &a=fleet[i]; float r=(a.distNm/radarRangeNm)*MAXR;
-    if(r>MAXR) continue; float brad=toRad(a.bearingDeg);
-    tft.fillCircle(CX+r*sin(brad),CY-r*cos(brad),3,altColor(a.altFt));
+    Aircraft &a=fleet[i];float r=(a.distNm/radarRangeNm)*MAXR;if(r>MAXR)continue;
+    float b=toRad(a.bearingDeg);
+    tft.fillCircle(CX+r*sin(b),CY-r*cos(b),3,altColor(a.altFt));
   }
-  tft.fillRect(0,206,240,34,TFT_BLACK);
-  tft.setTextColor(TFT_WHITE,TFT_BLACK);
-  if(fleetCount>0){
-    Aircraft &n=fleet[0]; char l1[40],l2[40];
+  tft.fillRect(0,206,240,34,TFT_BLACK);tft.setTextColor(TFT_WHITE,TFT_BLACK);
+  if(fleetCount>0){Aircraft &n=fleet[0];char l1[40],l2[40];
     snprintf(l1,40,"%s  FL%03d",strlen(n.flight)?n.flight:"----",n.altFt/100);
     snprintf(l2,40,"%.1fnm  %dkt",n.distNm,n.gsKt);
-    tft.drawString(l1,CX,214); tft.drawString(l2,CX,228);
-  } else { tft.drawString("No traffic nearby",CX,220); }
-  sweepAngle+=12; if(sweepAngle>=360) sweepAngle-=360;
+    tft.drawString(l1,CX,214);tft.drawString(l2,CX,228);
+  } else tft.drawString("No traffic",CX,220);
+  sweepAngle+=12;if(sweepAngle>=360)sweepAngle-=360;
 }
 
-void setup() {
-  pinMode(BOOT_BTN, INPUT_PULLUP);
+void setup(){
+  pinMode(BOOT_BTN,INPUT_PULLUP);
   tft.init(); tft.setRotation(0);
-  setupWiFi();
-  settingsServer.on("/", handleRoot);
-  settingsServer.on("/save", HTTP_POST, handleSave);
+  loadConfig();
+  if (strlen(savedSSID)==0) {
+    runImprovMode();
+  } else {
+    if (!connectSaved()) runImprovMode();
+  }
+  // show IP briefly
+  char ipStr[20]; WiFi.localIP().toString().toCharArray(ipStr,sizeof(ipStr));
+  showMessage("Connected!", ipStr, "visit in browser");
+  delay(3500);
+  settingsServer.on("/",handleRoot);
+  settingsServer.on("/save",HTTP_POST,handleSave);
+  settingsServer.on("/changewifi",HTTP_POST,handleChangeWifi);
   settingsServer.begin();
   fetchAircraft(); lastFetch=millis();
 }
 
-void loop() {
+bool connectSaved(){
+  if(strlen(savedSSID)==0) return false;
+  showMessage("Connecting...",savedSSID);
+  WiFi.begin(savedSSID,savedPass);
+  unsigned long t=millis();
+  while(WiFi.status()!=WL_CONNECTED&&millis()-t<12000) delay(200);
+  return WiFi.status()==WL_CONNECTED;
+}
+
+void loop(){
   unsigned long now=millis();
   settingsServer.handleClient();
-  // 5-second boot-button hold reopens WiFiManager portal
+  // boot button hold → clear creds → re-enter Improv
   if(digitalRead(BOOT_BTN)==LOW){
-    if(btnHoldStart==0) btnHoldStart=now;
-    if(now-btnHoldStart>5000 && !btnWasHeld){
-      btnWasHeld=true;
-      tft.fillScreen(TFT_BLACK); tft.setTextDatum(MC_DATUM);
-      tft.setTextColor(TFT_WHITE,TFT_BLACK);
-      tft.drawString("Opening setup portal...",120,120);
-      WiFiManager wm; wm.setConfigPortalTimeout(180);
-      wm.startConfigPortal("FlightRadar-Setup");
-      ESP.restart();
+    if(btnHoldStart==0)btnHoldStart=now;
+    if(!btnWasHeld&&now-btnHoldStart>5000){
+      btnWasHeld=true;showMessage("Clearing WiFi...","Restarting");
+      savedSSID[0]=0;savedPass[0]=0;saveConfig();delay(800);ESP.restart();
     }
-  } else { btnHoldStart=0; btnWasHeld=false; }
-  if(WiFi.status()!=WL_CONNECTED) ESP.restart();
+  }else{btnHoldStart=0;btnWasHeld=false;}
+  if(WiFi.status()!=WL_CONNECTED)ESP.restart();
   if(now-lastFetch>=FETCH_INTERVAL_MS||lastFetch==0){fetchAircraft();lastFetch=now;}
   if(now-lastDraw>=DRAW_INTERVAL_MS){drawRadar();lastDraw=now;}
 }

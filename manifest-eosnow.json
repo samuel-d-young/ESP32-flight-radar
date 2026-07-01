@@ -1,0 +1,8 @@
+{
+  "name": "Flight Radar — Eosnow 1.85\" Round",
+  "version": "1.4.0",
+  "new_install_prompt_erase": true,
+  "builds": [
+    { "chipFamily": "ESP32-S3", "parts": [{ "path": "firmware/flight_radar_esp32s3_eosnow.bin", "offset": 0 }] }
+  ]
+}

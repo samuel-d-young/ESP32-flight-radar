@@ -421,7 +421,7 @@
     <div>
       <h1>Flight Radar,<br>flashed from <em>your browser</em>.</h1>
       <p class="sub">
-        An ADS-B scope you flash from a webpage. Three real, compiled
+        An ADS-B scope you flash from a webpage. Four real, compiled
         firmware builds — pick the one matching your hardware below.
       </p>
 
@@ -459,6 +459,19 @@
           </div>
           <p>All-in-one ESP32-S3 panel — bigger radar, tap to refresh.</p>
           <esp-web-install-button manifest="./manifest-4848s040.json">
+            <button slot="activate">Install</button>
+            <span slot="unsupported" class="unsupported">Needs Chrome/Edge desktop</span>
+            <span slot="not-allowed" class="unsupported">Needs HTTPS</span>
+          </esp-web-install-button>
+        </div>
+
+        <div class="fw-card">
+          <div class="fw-card-head">
+            <h3>Eosnow 1.85" Round</h3>
+            <span class="fw-tag">360×360 · ST77916</span>
+          </div>
+          <p>All-in-one round ESP32-S3 board (ST77916 QSPI panel). Also fits the Waveshare ESP32-S3-Touch-LCD-1.85.</p>
+          <esp-web-install-button manifest="./manifest-eosnow.json">
             <button slot="activate">Install</button>
             <span slot="unsupported" class="unsupported">Needs Chrome/Edge desktop</span>
             <span slot="not-allowed" class="unsupported">Needs HTTPS</span>
@@ -567,9 +580,7 @@
       <h2>Display library</h2>
     </div>
     <p class="library-sub">
-      Three displays have real, compiled firmware now — GC9A01, ILI9341, and
-      the ESP32-4848S040. Everything else below is wiring reference for a
-      future custom build, not something the install buttons above can flash.
+      Four displays have real, compiled firmware now — GC9A01, ILI9341, the ESP32-4848S040, and the Eosnow 1.85″ round. Everything else below is wiring reference for a future custom build, not something the install buttons above can flash.
     </p>
     <p class="library-sub">
       Pick your board, then your display — GPIO numbers differ between
@@ -682,9 +693,14 @@
     gc9a01: { name:'GC9A01', meta:'1.28" round · 240×240 · SPI', compatible:true,
       pins: SPI_PINS(bp,[{k:'BLK / LED',v:bp.power+' (always on)'}]),
       note:'Real firmware build — install the "Round display" card above. Pin config is inline in the firmware; no User_Setup.h needed.' },
-    gc9d01: { name:'GC9D01', meta:'1.85" round · 360×360 · SPI', compatible:false,
-      pins: SPI_PINS(bp,[{k:'BLK / LED',v:bp.power+' (always on)'}]),
-      note:'The Eosnow board (and similar 360×360 round panels) most likely use this driver. Neither TFT_eSPI 2.5.x nor LovyanGFX 1.2.x include a GC9D01 driver in their current releases — a custom firmware build is needed. Check the LovyanGFX GitHub issues for community-contributed GC9D01 configs, or try Panel_GC9A01 (same command set, may partially work at wrong resolution).' },
+    gc9d01: { name:'Eosnow 1.85" Round (ST77916)', meta:'1.85" round · 360×360 · QSPI + CST816 touch · all-in-one', compatible:true, fixedBoard:true,
+      pins:[
+        {k:'Power',v:'USB-C, 5V — use a wall charger, not a laptop port'},
+        {k:'Display bus',v:'ST77916 over QSPI — soldered on-board, nothing to wire'},
+        {k:'Touch',v:'CST816 on I²C — nothing to wire'},
+        {k:'RST',v:'via TCA9554 IO expander — handled in firmware'},
+      ],
+      note:'Real firmware build — install the "Eosnow 1.85\" Round" card above, then just power it. The panel is actually an ST77916 driven over QSPI (a 4-bit SPI bus), NOT the GC9D01 the listing implies — TFT_eSPI can\u2019t drive it, so this build vendors in Espressif\u2019s esp_lcd_st77916 driver and renders the radar into a PSRAM framebuffer. Same firmware also fits the Waveshare ESP32-S3-Touch-LCD-1.85, which uses identical hardware. If your screen stays black, the internal I²C pins may differ from the Waveshare reference (SDA=11/SCL=10) — that\u2019s the most likely thing to need adjusting.' },
     s040: { name:'ESP32-4848S040', meta:'4.0" 480×480 · RGB-parallel + GT911 touch · all-in-one', compatible:true, fixedBoard:true,
       pins:[
         {k:'Power',v:'USB-C, 5V — use a wall charger, not a laptop USB port'},

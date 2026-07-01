@@ -1,16 +1,8 @@
 {
-  "name": "Flight Radar \u2014 ESP32-4848S040",
-  "version": "1.3.0",
+  "name": "Flight Radar — ESP32-4848S040",
+  "version": "1.4.0",
   "new_install_prompt_erase": true,
   "builds": [
-    {
-      "chipFamily": "ESP32-S3",
-      "parts": [
-        {
-          "path": "firmware/flight_radar_esp32s3_4848s040.bin",
-          "offset": 0
-        }
-      ]
-    }
+    { "chipFamily": "ESP32-S3", "parts": [{ "path": "firmware/flight_radar_esp32s3_4848s040.bin", "offset": 0 }] }
   ]
 }
