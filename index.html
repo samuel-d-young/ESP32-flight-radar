@@ -496,12 +496,13 @@
         <div>
           <h3>Plug in and install</h3>
           <p>
-            Connect your board over USB — the display doesn't need to be
-            wired up yet. Pick the matching card above for your display
-            shape, click <code>Install</code>, choose the serial port when
-            prompted, and let it flash. ESP8266/ESP32 chip detection is
-            automatic; the ESP32-4848S040 card is for that specific
-            all-in-one board only.
+            Connect your board over USB, pick the matching card above, and
+            click <code>Install</code>. After flashing the browser will
+            automatically show a <strong style="color:var(--green)">Configure
+            WiFi</strong> dialog — enter your home network name and password
+            right there, no separate setup step needed. The installer detects
+            ESP8266, ESP32, and ESP32-S3 automatically and flashes the right
+            build.
           </p>
         </div>
       </div>
@@ -509,12 +510,12 @@
       <div class="step">
         <div class="num">02</div>
         <div>
-          <h3>Join "FlightRadar&#8209;Setup"</h3>
+          <h3>Set your location</h3>
           <p>
-            On first boot the device opens its own Wi-Fi network. Connect to it
-            from a phone or laptop, fill in your home Wi-Fi details plus your
-            location and radar range, and it reboots straight onto the scope.
-            Settings are saved to flash permanently.
+            After connecting to WiFi the device's IP address shows on the
+            display for a few seconds. Visit that IP in any browser on
+            the same network to set your home latitude, longitude, and radar
+            range. You can also change WiFi here any time — no reflash needed.
           </p>
         </div>
       </div>
