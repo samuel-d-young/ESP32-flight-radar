@@ -1,0 +1,759 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flight Radar — browser installer</title>
+<meta name="description" content="Flash the Flight Radar ADS-B scope firmware to a NodeMCU ESP8266 directly from your browser.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script type="module" src="https://unpkg.com/esp-web-tools@10.2.1/dist/web/install-button.js"></script>
+<style>
+  :root {
+    --bg: #06090a;
+    --panel: #0d1412;
+    --panel-edge: #1c2622;
+    --green: #39ff8a;
+    --green-dim: #1f8f55;
+    --amber: #ffb454;
+    --text: #e9f3ee;
+    --text-muted: #74867e;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+    --display: 'Space Grotesk', sans-serif;
+    --body: 'Inter', sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--body);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    background-image:
+      radial-gradient(circle at 80% -10%, rgba(57,255,138,0.08), transparent 45%),
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.012) 0px, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 3px);
+  }
+
+  a { color: var(--green); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  :focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
+
+  .wrap {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  /* ---------- header ---------- */
+  header {
+    padding: 28px 0 0;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    color: var(--green-dim);
+    text-transform: uppercase;
+  }
+
+  /* ---------- hero ---------- */
+  .hero {
+    display: grid;
+    grid-template-columns: 1.15fr 0.85fr;
+    gap: 40px;
+    align-items: center;
+    padding: 28px 0 56px;
+    border-bottom: 1px solid var(--panel-edge);
+  }
+  @media (max-width: 700px) {
+    .hero { grid-template-columns: 1fr; padding-bottom: 36px; }
+  }
+
+  h1 {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: clamp(32px, 5vw, 46px);
+    line-height: 1.08;
+    margin: 10px 0 16px;
+    letter-spacing: -0.01em;
+  }
+  h1 em {
+    font-style: normal;
+    color: var(--green);
+  }
+
+  .sub {
+    color: var(--text-muted);
+    font-size: 16px;
+    line-height: 1.6;
+    max-width: 46ch;
+    margin: 0 0 28px;
+  }
+
+  .fw-cards {
+    display: grid;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+  .fw-card {
+    border: 1px solid var(--panel-edge);
+    background: var(--panel);
+    border-radius: 10px;
+    padding: 16px 18px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto;
+    align-items: center;
+    gap: 4px 14px;
+  }
+  .fw-card-head {
+    grid-column: 1;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .fw-card h3 {
+    font-family: var(--display);
+    font-size: 16px;
+    margin: 0;
+  }
+  .fw-tag {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--green-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .fw-card p {
+    grid-column: 1;
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--text-muted);
+  }
+  .fw-card esp-web-install-button {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    --esp-tools-button-color: var(--green);
+    --esp-tools-button-text-color: #04130a;
+    --esp-tools-progress-color: var(--green);
+    --esp-tools-error-color: #ff6b6b;
+    font-family: var(--display);
+  }
+  .fw-card button[slot="activate"] {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 14px;
+    background: var(--green);
+    color: #04130a;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .fw-card button[slot="activate"]:hover { background: #5dffa3; }
+  .fw-card button[slot="activate"]:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+  @media (max-width: 480px) {
+    .fw-card { grid-template-columns: 1fr; }
+    .fw-card esp-web-install-button { grid-column: 1; grid-row: auto; justify-self: start; margin-top: 8px; }
+  }
+
+  .install-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  esp-web-install-button {
+    --esp-tools-button-color: var(--green);
+    --esp-tools-button-text-color: #04130a;
+    --esp-tools-progress-color: var(--green);
+    --esp-tools-error-color: #ff6b6b;
+    font-family: var(--display);
+  }
+
+  .browser-note {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  noscript-fallback, .unsupported {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--amber);
+    border: 1px dashed var(--amber);
+    padding: 10px 14px;
+    border-radius: 6px;
+    display: inline-block;
+  }
+
+  /* ---------- radar signature element ---------- */
+  .scope {
+    justify-self: center;
+    width: min(280px, 100%);
+    aspect-ratio: 1;
+    position: relative;
+  }
+  .scope svg { width: 100%; height: 100%; display: block; }
+  .scope .bezel { fill: var(--panel); stroke: var(--panel-edge); stroke-width: 2; }
+  .scope .ring { fill: none; stroke: #16201c; stroke-width: 1; }
+  .scope .crosshair { stroke: #16201c; stroke-width: 1; }
+  .scope .sweep-wedge {
+    transform-origin: 120px 120px;
+    animation: spin 4.5s linear infinite;
+  }
+  .scope .blip {
+    fill: var(--amber);
+    animation: blink 2.6s ease-in-out infinite;
+  }
+  .scope .blip.b2 { animation-delay: 0.9s; fill: var(--green); }
+  .scope .blip.b3 { animation-delay: 1.7s; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes blink {
+    0%, 100% { opacity: 0; }
+    15%, 35% { opacity: 1; }
+    55% { opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .scope .sweep-wedge { animation: none; }
+    .scope .blip { animation: none; opacity: 0.9; }
+  }
+
+  /* ---------- steps ---------- */
+  section.steps {
+    padding: 56px 0;
+    border-bottom: 1px solid var(--panel-edge);
+  }
+  .steps h2 {
+    font-family: var(--display);
+    font-size: 14px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin: 0 0 28px;
+  }
+  .step-list {
+    display: grid;
+    gap: 20px;
+  }
+  .step {
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    gap: 18px;
+    padding: 18px 20px;
+    background: var(--panel);
+    border: 1px solid var(--panel-edge);
+    border-radius: 10px;
+  }
+  .step .num {
+    font-family: var(--mono);
+    color: var(--green-dim);
+    font-size: 22px;
+    font-weight: 500;
+  }
+  .step h3 {
+    font-family: var(--display);
+    font-size: 16px;
+    margin: 0 0 6px;
+  }
+  .step p {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 14.5px;
+    line-height: 1.55;
+  }
+  .step code, .pins {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text);
+    background: #00000055;
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+  .pins-block {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text);
+    margin-top: 10px;
+    line-height: 1.7;
+    display: grid;
+    grid-template-columns: repeat(2, auto);
+    gap: 2px 28px;
+  }
+  .pins-block span.k { color: var(--text-muted); }
+
+  /* ---------- specs placard ---------- */
+  section.specs {
+    padding: 48px 0 64px;
+  }
+  .placard {
+    border: 1px solid var(--panel-edge);
+    background: var(--panel);
+    border-radius: 10px;
+    padding: 24px 28px;
+    font-family: var(--mono);
+    font-size: 13.5px;
+  }
+  .placard .row {
+    display: grid;
+    grid-template-columns: 110px 1fr;
+    padding: 7px 0;
+    border-bottom: 1px solid #ffffff0a;
+  }
+  .placard .row:last-child { border-bottom: none; }
+  .placard .k { color: var(--text-muted); }
+  .placard .v { color: var(--text); }
+
+  footer {
+    padding: 28px 0 60px;
+    color: var(--text-muted);
+    font-size: 13px;
+    line-height: 1.7;
+  }
+
+  /* ---------- display library ---------- */
+  section.library {
+    padding: 48px 0 56px;
+    border-top: 1px solid var(--panel-edge);
+  }
+  .library-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  .library-head h2 {
+    font-family: var(--display);
+    font-size: 14px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin: 0;
+  }
+  .library-sub {
+    color: var(--text-muted);
+    font-size: 13.5px;
+    margin: 0 0 18px;
+    max-width: 60ch;
+  }
+  select#displaySelect, select#boardSelect {
+    width: 100%;
+    background: var(--panel);
+    border: 1px solid var(--panel-edge);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    appearance: none;
+    cursor: pointer;
+  }
+  select#displaySelect:focus-visible, select#boardSelect:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+
+  .lib-card {
+    margin-top: 16px;
+    border: 1px solid var(--panel-edge);
+    background: var(--panel);
+    border-radius: 10px;
+    padding: 20px 22px;
+  }
+  .lib-card .lib-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+  }
+  .lib-card h3 {
+    font-family: var(--display);
+    font-size: 17px;
+    margin: 0;
+  }
+  .badge {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 4px 9px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .badge.ok { background: rgba(57,255,138,0.12); color: var(--green); border: 1px solid rgba(57,255,138,0.35); }
+  .badge.ref { background: rgba(255,180,84,0.12); color: var(--amber); border: 1px solid rgba(255,180,84,0.35); }
+
+  .lib-meta {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin: 4px 0 14px;
+  }
+  .lib-note {
+    font-size: 13.5px;
+    line-height: 1.6;
+    margin: 14px 0 0;
+    padding-top: 14px;
+    border-top: 1px solid #ffffff0a;
+  }
+  .lib-note.ref-note { color: var(--amber); }
+  .lib-note.ok-note { color: var(--text-muted); }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Home lab — ESP8266 / ESP32 / ESP32-S3</div>
+  </header>
+
+  <section class="hero">
+    <div>
+      <h1>Flight Radar,<br>flashed from <em>your browser</em>.</h1>
+      <p class="sub">
+        An ADS-B scope you flash from a webpage. Three real, compiled
+        firmware builds — pick the one matching your hardware below.
+      </p>
+
+      <div class="fw-cards">
+        <div class="fw-card">
+          <div class="fw-card-head">
+            <h3>Round display</h3>
+            <span class="fw-tag">GC9A01 · 240×240</span>
+          </div>
+          <p>ESP8266 NodeMCU or ESP32 dev board, detected automatically.</p>
+          <esp-web-install-button manifest="./manifest-round.json">
+            <button slot="activate">Install</button>
+            <span slot="unsupported" class="unsupported">Needs Chrome/Edge desktop</span>
+            <span slot="not-allowed" class="unsupported">Needs HTTPS</span>
+          </esp-web-install-button>
+        </div>
+
+        <div class="fw-card">
+          <div class="fw-card-head">
+            <h3>Rectangular display</h3>
+            <span class="fw-tag">ILI9341 · 240×320</span>
+          </div>
+          <p>Standard cheap TFT module. ESP8266 or ESP32, auto-detected.</p>
+          <esp-web-install-button manifest="./manifest-rect.json">
+            <button slot="activate">Install</button>
+            <span slot="unsupported" class="unsupported">Needs Chrome/Edge desktop</span>
+            <span slot="not-allowed" class="unsupported">Needs HTTPS</span>
+          </esp-web-install-button>
+        </div>
+
+        <div class="fw-card">
+          <div class="fw-card-head">
+            <h3>ESP32-4848S040</h3>
+            <span class="fw-tag">480×480 · touch</span>
+          </div>
+          <p>All-in-one ESP32-S3 panel — bigger radar, tap to refresh.</p>
+          <esp-web-install-button manifest="./manifest-4848s040.json">
+            <button slot="activate">Install</button>
+            <span slot="unsupported" class="unsupported">Needs Chrome/Edge desktop</span>
+            <span slot="not-allowed" class="unsupported">Needs HTTPS</span>
+          </esp-web-install-button>
+        </div>
+      </div>
+
+      <p class="browser-note">Chrome / Edge, desktop, USB cable</p>
+    </div>
+
+    <div class="scope" aria-hidden="true">
+      <svg viewBox="0 0 240 240">
+        <circle class="bezel" cx="120" cy="120" r="118"/>
+        <circle class="ring" cx="120" cy="120" r="95"/>
+        <circle class="ring" cx="120" cy="120" r="63"/>
+        <circle class="ring" cx="120" cy="120" r="31"/>
+        <line class="crosshair" x1="120" y1="8" x2="120" y2="232"/>
+        <line class="crosshair" x1="8" y1="120" x2="232" y2="120"/>
+        <g class="sweep-wedge">
+          <path d="M120,120 L120,9 A111,111 0 0,1 198,42 Z" fill="var(--green)" opacity="0.16"/>
+          <line x1="120" y1="120" x2="120" y2="9" stroke="var(--green)" stroke-width="2"/>
+        </g>
+        <circle class="blip b1" cx="158" cy="76" r="4"/>
+        <circle class="blip b2" cx="78" cy="150" r="4"/>
+        <circle class="blip b3" cx="148" cy="168" r="3.5"/>
+      </svg>
+    </div>
+  </section>
+
+  <section class="steps">
+    <h2>Setup — three steps</h2>
+    <div class="step-list">
+      <div class="step">
+        <div class="num">01</div>
+        <div>
+          <h3>Plug in and install</h3>
+          <p>
+            Connect your board over USB — the display doesn't need to be
+            wired up yet. Pick the matching card above for your display
+            shape, click <code>Install</code>, choose the serial port when
+            prompted, and let it flash. ESP8266/ESP32 chip detection is
+            automatic; the ESP32-4848S040 card is for that specific
+            all-in-one board only.
+          </p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="num">02</div>
+        <div>
+          <h3>Join "FlightRadar&#8209;Setup"</h3>
+          <p>
+            On first boot the device opens its own Wi-Fi network. Connect to it
+            from a phone or laptop, fill in your home Wi-Fi details plus your
+            location and radar range, and it reboots straight onto the scope.
+            These settings are saved on the device — you won't see this step again.
+          </p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="num">03</div>
+        <div>
+          <h3>Wire your display (if it needs wiring)</h3>
+          <p>
+            The round and rectangular builds need the display wired up —
+            pick your board and exact display in the
+            <a href="#display-library">display library</a> below. The
+            ESP32-4848S040 is a self-contained module, so this step doesn't
+            apply to it — just power and go.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="specs">
+    <h2 style="font-family:var(--display);font-size:14px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-muted);margin:0 0 16px;">Hardware &amp; firmware</h2>
+    <div class="placard">
+      <div class="row"><span class="k">BOARDS</span><span class="v">ESP8266 NodeMCU V3, ESP32 Dev Module, or ESP32-4848S040 — auto-detected</span></div>
+      <div class="row"><span class="k">DISPLAYS</span><span class="v">GC9A01 round, ILI9341 rect, or ESP32-4848S040 480×480 touch</span></div>
+      <div class="row"><span class="k">DATA SOURCE</span><span class="v">api.adsb.lol — community ADS-B feed, no key required</span></div>
+      <div class="row"><span class="k">RANGE</span><span class="v">configurable on first setup, default 25&nbsp;nm</span></div>
+      <div class="row"><span class="k">FIRMWARE</span><span class="v">3 builds — manifest-round / manifest-rect / manifest-4848s040 — v1.2.0</span></div>
+    </div>
+  </section>
+
+  <section class="library" id="display-library">
+    <div class="library-head">
+      <h2>Display library</h2>
+    </div>
+    <p class="library-sub">
+      Three displays have real, compiled firmware now — GC9A01, ILI9341, and
+      the ESP32-4848S040. Everything else below is wiring reference for a
+      future custom build, not something the install buttons above can flash.
+    </p>
+    <p class="library-sub">
+      Pick your board, then your display — GPIO numbers differ between
+      ESP8266 NodeMCU and ESP32 dev boards even where pin labels look similar
+      (the ESP32-4848S040 fixes this automatically since it's a single
+      all-in-one module).
+    </p>
+
+    <select id="boardSelect" aria-label="Select your board" style="margin-bottom:12px;">
+      <option value="esp8266">ESP8266 — NodeMCU V3 (ESP-12E)</option>
+      <option value="esp32">ESP32 — Dev Module / NodeMCU-32S</option>
+    </select>
+
+    <select id="displaySelect" aria-label="Select your display">
+      <optgroup label="Round SPI TFT">
+        <option value="gc9a01">GC9A01 — 1.28" round, 240×240</option>
+      </optgroup>
+      <optgroup label="All-in-one touch panel">
+        <option value="s040">ESP32-4848S040 — 4.0" 480×480, RGB + touch</option>
+      </optgroup>
+      <optgroup label="Square / rectangular SPI TFT">
+        <option value="ili9341">ILI9341 — 2.4"/2.8" rect, 240×320</option>
+        <option value="st7789_sq">ST7789 — 1.3"/1.54" square, 240×240</option>
+        <option value="st7789_rect">ST7789V — 1.69"/1.9" rect, 240×280 / 170×320</option>
+        <option value="st7735">ST7735 — 1.8" rect, 128×160</option>
+        <option value="ili9488">ILI9488 — 3.5" rect, 320×480</option>
+        <option value="hx8357">HX8357 — 3.5" rect, 320×480</option>
+        <option value="ili9225">ILI9225 — 2.2" rect, 176×220</option>
+      </optgroup>
+      <optgroup label="I2C OLED (monochrome)">
+        <option value="ssd1306">SSD1306 — 0.96"/1.3" OLED, 128×64</option>
+        <option value="sh1106">SH1106 — 1.3" OLED, 128×64</option>
+      </optgroup>
+      <optgroup label="Other">
+        <option value="other">Other / not listed</option>
+      </optgroup>
+    </select>
+
+    <div class="lib-card" id="libCard"><!-- filled by JS --></div>
+
+    <p class="library-sub" style="margin-top:24px;">
+      <strong style="color:var(--text);">Not supported, and can't be:</strong>
+      classic AVR Arduinos (Uno, Nano, Mega, Leonardo) don't have the
+      Espressif serial bootloader that browser-based flashing depends on —
+      no browser tool can flash them, regardless of how this page is built.
+      They'd need a completely different, AVR-specific firmware and a desktop
+      flashing tool (e.g. avrdude) instead.
+    </p>
+  </section>
+
+  <footer>
+    Built with <a href="https://esphome.github.io/esp-web-tools/" target="_blank" rel="noopener">ESP Web Tools</a>,
+    flashing over Web Serial — nothing here leaves your machine except the ESP8266 itself,
+    which talks only to adsb.lol once it's online.
+  </footer>
+</div>
+
+<script>
+  const BOARD_PINS = {
+    esp8266: { power: '3V3', scl: 'D5', sda: 'D7', dc: 'D4', cs: 'D8', rst: 'D2', i2cScl: 'D1', i2cSda: 'D2' },
+    esp32:   { power: '3V3', scl: 'GPIO18', sda: 'GPIO23', dc: 'GPIO2', cs: 'GPIO5', rst: 'GPIO4', i2cScl: 'GPIO22', i2cSda: 'GPIO21' },
+  };
+
+  const SPI_PINS = (bp, extra) => [
+    { k: 'VCC', v: bp.power },
+    { k: 'GND', v: 'GND' },
+    { k: 'SCL / SCK', v: bp.scl },
+    { k: 'SDA / MOSI', v: bp.sda },
+    { k: 'DC / A0', v: bp.dc },
+    { k: 'CS', v: bp.cs },
+    { k: 'RST / RES', v: bp.rst },
+    ...(extra || []),
+  ];
+  const I2C_PINS = (bp) => [
+    { k: 'VCC', v: bp.power },
+    { k: 'GND', v: 'GND' },
+    { k: 'SCL', v: bp.i2cScl },
+    { k: 'SDA', v: bp.i2cSda },
+  ];
+
+  function buildDisplays(bp) {
+    return {
+      gc9a01: {
+        name: 'GC9A01', meta: '1.28" round · 240×240 · SPI',
+        compatible: true,
+        pins: SPI_PINS(bp, [{ k: 'BLK / LED', v: bp.power + ' (always on)' }]),
+        note: 'This is exactly what the prebuilt firmware drives on this board — install above as-is, no changes needed.',
+      },
+      st7789_sq: {
+        name: 'ST7789 (square)', meta: '1.3"/1.54" square · 240×240 · SPI',
+        compatible: false,
+        pins: SPI_PINS(bp, [{ k: 'BLK / LED', v: bp.power + ' (always on)' }]),
+        note: 'Same wiring convention as GC9A01, but a different driver chip. The prebuilt .bin won\u2019t render correctly on this — needs a recompile with GC9A01_DRIVER swapped for ST7789_DRIVER in the sketch.',
+      },
+      st7789_rect: {
+        name: 'ST7789V (rect)', meta: '1.69"/1.9" rect · 240×280 or 170×320 · SPI',
+        compatible: false,
+        pins: SPI_PINS(bp, [{ k: 'BLK / LED', v: bp.power + ' (always on)' }]),
+        note: 'Wiring is the same, but the round radar layout assumes a 240×240 square canvas. A rectangular panel needs both a driver change and a redrawn (non-circular) radar layout.',
+      },
+      st7735: {
+        name: 'ST7735', meta: '1.8" rect · 128×160 · SPI',
+        compatible: false,
+        pins: SPI_PINS(bp, [{ k: 'BLK / LED', v: bp.power + ' (always on)' }]),
+        note: 'Small and inexpensive, but 128×160 is a tighter canvas than the radar UI is laid out for — expect to shrink the ring/blip geometry as well as swap the driver.',
+      },
+      ili9341: {
+        name: 'ILI9341', meta: '2.4"/2.8" rect · 240×320 · SPI',
+        compatible: true,
+        pins: SPI_PINS(bp, [{ k: 'BLK / LED', v: bp.power + ' (always on)' }, { k: 'T_CS / T_CLK / T_DO / T_DIN / T_IRQ', v: 'unused (touch, ignore)' }]),
+        note: 'Real firmware build — install the "Rectangular display" card above. Often sold with a resistive touch layer; that\u2019s unused here, leave it unwired.',
+      },
+      s040: {
+        name: 'ESP32-4848S040', meta: '4.0" 480×480 · RGB-parallel + GT911 touch · all-in-one',
+        compatible: true,
+        fixedBoard: true,
+        pins: [
+          { k: 'Power', v: 'USB-C, 5V — use a wall charger or desktop port, not a laptop port' },
+          { k: 'Display bus', v: 'soldered on-board (16-bit RGB parallel + 3-wire SPI init) — nothing to wire' },
+          { k: 'Touch', v: 'GT911, on-board I²C — nothing to wire' },
+        ],
+        note: 'This module is the board — there\u2019s no separate display to wire up. Install the "ESP32-4848S040" card above, then just power it. Driven by LovyanGFX, not TFT_eSPI, since this panel uses an RGB-parallel bus that TFT_eSPI doesn\u2019t support.',
+      },
+      ili9488: {
+        name: 'ILI9488', meta: '3.5" rect · 320×480 · SPI',
+        compatible: false,
+        pins: SPI_PINS(bp, [{ k: 'BLK / LED', v: bp.power + ' (always on)' }]),
+        note: 'Bigger canvas, same story: driver swap plus a rectangular layout. Worth it if you want a more readable nearest-aircraft banner.',
+      },
+      hx8357: {
+        name: 'HX8357', meta: '3.5" rect · 320×480 · SPI',
+        compatible: false,
+        pins: SPI_PINS(bp, [{ k: 'BLK / LED', v: bp.power + ' (always on)' }]),
+        note: 'Same class as ILI9488. Needs a driver swap and rectangular layout.',
+      },
+      ili9225: {
+        name: 'ILI9225', meta: '2.2" rect · 176×220 · SPI',
+        compatible: false,
+        pins: SPI_PINS(bp, [{ k: 'BLK / LED', v: bp.power + ' (always on)' }]),
+        note: 'Less common driver with quirkier TFT_eSPI support. Confirm TFT_eSPI lists ILI9225 for your library version before committing to wiring.',
+      },
+      ssd1306: {
+        name: 'SSD1306', meta: '0.96"/1.3" OLED · 128×64 · I2C',
+        compatible: false,
+        pins: I2C_PINS(bp),
+        note: 'Monochrome and only 64px tall — too small for the ring/sweep radar as designed. Would need a completely different, simplified UI (e.g. nearest-aircraft text only) using a library like U8g2 instead of TFT_eSPI.',
+      },
+      sh1106: {
+        name: 'SH1106', meta: '1.3" OLED · 128×64 · I2C',
+        compatible: false,
+        pins: I2C_PINS(bp),
+        note: 'Same situation as the SSD1306 — monochrome, small, and SPI-radar code doesn\u2019t apply. Text-only firmware variant needed.',
+      },
+      other: {
+        name: 'Other / not listed', meta: 'match by pin function, not name',
+        compatible: false,
+        pins: [
+          { k: 'Power', v: 'VCC → ' + bp.power + ' · GND → GND' },
+          { k: 'Clock', v: 'SCL / SCK → ' + bp.scl },
+          { k: 'Data', v: 'SDA / MOSI → ' + bp.sda },
+          { k: 'Command select', v: 'DC / A0 → ' + bp.dc + ' (SPI displays only)' },
+          { k: 'Chip select', v: 'CS → ' + bp.cs + ' (SPI displays only)' },
+          { k: 'Reset', v: 'RST / RES → ' + bp.rst },
+          { k: 'Backlight', v: 'BLK / LED → ' + bp.power + ', if present' },
+        ],
+        note: 'Most small SPI TFTs share this pin layout regardless of brand — match by function. Check your display\u2019s driver chip (printed on the board or in the listing) against TFT_eSPI\u2019s supported driver list, then recompile with that driver and resolution before flashing.',
+      },
+    };
+  }
+
+  function render() {
+    const boardSel = document.getElementById('boardSelect');
+    const dispKey = document.getElementById('displaySelect').value;
+    const bp = BOARD_PINS[boardSel.value];
+    const d = buildDisplays(bp)[dispKey];
+    if (!d) return;
+
+    boardSel.disabled = !!d.fixedBoard;
+    boardSel.style.opacity = d.fixedBoard ? 0.4 : 1;
+
+    const card = document.getElementById('libCard');
+    const badge = d.compatible
+      ? '<span class="badge ok">real firmware build</span>'
+      : '<span class="badge ref">wiring reference only</span>';
+    const pinsHtml = d.pins.map(p => `<div><span class="k">${p.k}</span> ${p.v}</div>`).join('');
+    card.innerHTML = `
+      <div class="lib-title-row">
+        <h3>${d.name}</h3>
+        ${badge}
+      </div>
+      <div class="lib-meta">${d.meta}</div>
+      <div class="pins-block">${pinsHtml}</div>
+      <p class="lib-note ${d.compatible ? 'ok-note' : 'ref-note'}">${d.note}</p>
+    `;
+  }
+
+  document.getElementById('boardSelect').addEventListener('change', render);
+  document.getElementById('displaySelect').addEventListener('change', render);
+  render();
+</script>
+
+</body>
+</html>

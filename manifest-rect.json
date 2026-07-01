@@ -1,0 +1,9 @@
+{
+  "name": "Flight Radar — Rectangular display",
+  "version": "1.2.0",
+  "new_install_prompt_erase": true,
+  "builds": [
+    { "chipFamily": "ESP8266", "parts": [{ "path": "firmware/flight_radar_esp8266_rect.bin", "offset": 0 }] },
+    { "chipFamily": "ESP32",   "parts": [{ "path": "firmware/flight_radar_esp32_rect.bin", "offset": 0 }] }
+  ]
+}
